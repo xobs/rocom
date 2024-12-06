@@ -3,6 +3,10 @@
 
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
 	STA_STATE_NEW = 0,
 	STA_STATE_OK = 1,
@@ -49,5 +53,8 @@ esp_err_t wilma_foreach_visible_ap(void (*ap_callback)(const uint8_t ssid[32], u
 /// @brief  Low-level queue interaction from ISR
 void wilma_forget_config_from_isr(void *has_awoken);
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* WILMA_H__ */
