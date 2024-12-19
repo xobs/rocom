@@ -233,7 +233,6 @@ void class_driver_task(void *arg)
 
     while (1) {
         // Driver has unhandled devices, handle all devices first
-        ESP_LOGI(TAG, "Some events occurred!");
         if (driver_obj.mux_protected.flags.unhandled_devices) {
             xSemaphoreTake(driver_obj.constant.mux_lock, portMAX_DELAY);
             for (uint8_t i = 0; i < DEV_MAX_COUNT; i++) {
