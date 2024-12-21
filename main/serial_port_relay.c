@@ -1,13 +1,13 @@
 #include <esp_err.h>
 #include <esp_log.h>
+#include <freertos/ringbuf.h>
 #include <string.h>
 #include <usb/cdc_acm_host.h>
 #include <usb/usb_host.h>
 
 #include "rfc2217_server.h"
 
-// #define EXAMPLE_USB_DEVICE_VID 0x303a
-// #define EXAMPLE_USB_DEVICE_PID 0x1001
+#define USB_TO_NETWORK_TASK_PRIORITY 6
 
 static const char *TAG = "USB-CDC";
 
@@ -18,6 +18,7 @@ static const char *TAG = "USB-CDC";
 static bool s_client_connected;
 static SemaphoreHandle_t s_device_disconnected_sem;
 static rfc2217_server_t s_server;
+static int s_baudrate = 115200;
 static bool s_dtr;
 static bool s_rts;
 static cdc_acm_dev_hdl_t cdc_dev = NULL;
@@ -87,6 +88,11 @@ static unsigned on_baudrate(void *ctx, unsigned baudrate)
     {
         return baudrate;
     }
+    if (baudrate == s_baudrate)
+    {
+        return s_baudrate;
+    }
+    s_baudrate = baudrate;
     ESP_LOGI(TAG, "Setting baudrate: %d", baudrate);
     cdc_acm_line_coding_t line_coding;
     ESP_ERROR_CHECK(cdc_acm_host_line_coding_get(cdc_dev, &line_coding));
@@ -121,18 +127,40 @@ static void on_data_received_from_rfc2217(void *ctx, const uint8_t *data, size_t
     }
 }
 
-static bool on_data_received_from_usb(const uint8_t *data, size_t data_len, void *arg)
+static bool on_data_received_from_usb(const uint8_t *data, size_t data_len, void *ringbuf_hdl_ptr)
 {
-    (void)arg;
+    RingbufHandle_t ringbuf_hdl = ringbuf_hdl_ptr;
     ESP_LOGI(TAG, "%d bytes received from device -- forwarding to TCP", data_len);
     ESP_LOG_BUFFER_HEXDUMP(TAG, data, data_len, ESP_LOG_INFO);
     if (!s_client_connected)
     {
         return true;
     }
-    rfc2217_server_send_data(s_server, data, data_len);
+    if (unlikely(xRingbufferSend(ringbuf_hdl, data, data_len, pdMS_TO_TICKS(5))) == pdFALSE)
+    {
+        abort();
+    }
 
     return true;
+}
+
+static void usb_to_network(void *ringbuf_hdl_ptr)
+{
+    RingbufHandle_t ringbuf_hdl = ringbuf_hdl_ptr;
+    uint32_t length_max = 1024;
+    while (true)
+    {
+        size_t size = 0;
+        void *data = xRingbufferReceiveUpTo(ringbuf_hdl, &size, portMAX_DELAY, length_max);
+        if (!data)
+        {
+            continue;
+        }
+
+        rfc2217_server_send_data(s_server, data, size);
+
+        vRingbufferReturnItem(ringbuf_hdl, data);
+    }
 }
 
 void serial_port_relay(void)
@@ -140,12 +168,14 @@ void serial_port_relay(void)
     ESP_LOGI(TAG, "Installing CDC-ACM driver");
     ESP_ERROR_CHECK(cdc_acm_host_install(NULL));
     s_device_disconnected_sem = xSemaphoreCreateBinary();
+    TaskHandle_t usb_to_network_task = NULL;
+    RingbufHandle_t usb_to_network_buffer = xRingbufferCreate(1024, RINGBUF_TYPE_BYTEBUF);
 
     const cdc_acm_host_device_config_t dev_config = {
         .connection_timeout_ms = 1000,
         .out_buffer_size = 1024,
         .in_buffer_size = 1024,
-        .user_arg = NULL,
+        .user_arg = usb_to_network_buffer,
         .event_cb = handle_event,
         .data_cb = on_data_received_from_usb,
     };
@@ -169,6 +199,7 @@ void serial_port_relay(void)
     ESP_LOGI(TAG, "Starting RFC2217 server on port %u", rfc2217_config.port);
 
     ESP_ERROR_CHECK(rfc2217_server_start(s_server));
+    xTaskCreate(usb_to_network, "USB-to-network", 4000, usb_to_network_buffer, USB_TO_NETWORK_TASK_PRIORITY, &usb_to_network_task);
 
     while (true)
     {
@@ -182,28 +213,11 @@ void serial_port_relay(void)
             continue;
         }
         // cdc_acm_host_desc_print(cdc_dev);
+        s_baudrate = 115200;
 
         ESP_ERROR_CHECK(cdc_acm_host_set_control_line_state(cdc_dev, true, false));
         xSemaphoreTake(s_device_disconnected_sem, portMAX_DELAY);
-
-        // bool cdc_device_active = true;
-        // while (cdc_device_active)
-        // {
-        //     tcp_uart_await_connection();
-        //     while ((bytes_read = tcp_uart_rx(rx_buffer, sizeof(rx_buffer))) > 0)
-        //     {
-        //         ESP_LOGI(TAG, "%d bytes received from TCP -- forwarding to device", bytes_read);
-        //         esp_err_t ret = handle_telnet(cdc_dev, rx_buffer, bytes_read);
-        //         if (ret != ESP_OK)
-        //         {
-        //             ESP_LOGE(TAG, "Error received from CDC device: %s", esp_err_to_name(ret));
-        //             cdc_device_active = false;
-        //             break;
-        //         }
-        //     }
-        //     ESP_LOGI(TAG, "Read %d bytes", bytes_read);
-        // }
-
-        // cdc_acm_host_close(cdc_dev);
     }
+
+    vTaskDelete(usb_to_network_task);
 }

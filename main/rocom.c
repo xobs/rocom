@@ -111,8 +111,8 @@ void app_main(void)
 {
     TaskHandle_t host_lib_task_hdl;
 
-    // wilma_start();
-    simple_wifi();
+    wilma_start();
+    // simple_wifi();
     configure_reset_boot();
     reset_target_bootloader();
 
@@ -130,6 +130,6 @@ void app_main(void)
     // Wait unit the USB host library is installed
     ulTaskNotifyTake(false, 1000);
 
-    // serial_port_relay();
-    tristate_usb();
+    serial_port_relay();
+    // tristate_usb();
 }

@@ -117,6 +117,4 @@ void simple_wifi(void)
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     wifi_init();
-
-    // xTaskCreatePinnedToCore(uart_net_task, "uart_net", 1 * 4096, (void *)AF_INET, 21, NULL, 1);
 }
