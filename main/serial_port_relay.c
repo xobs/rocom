@@ -136,7 +136,7 @@ static bool on_data_received_from_usb(const uint8_t *data, size_t data_len, void
     {
         return true;
     }
-    if (unlikely(xRingbufferSend(ringbuf_hdl, data, data_len, pdMS_TO_TICKS(5))) == pdFALSE)
+    if (unlikely(xRingbufferSend(ringbuf_hdl, data, data_len, pdMS_TO_TICKS(1))) == pdFALSE)
     {
         abort();
     }

@@ -24,7 +24,7 @@
 
 static const char *TAG = "rocom";
 
-#define HOST_LIB_TASK_PRIORITY 2
+#define HOST_LIB_TASK_PRIORITY 9
 
 extern void serial_port_relay(void);
 
