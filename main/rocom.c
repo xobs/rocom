@@ -4,6 +4,10 @@
  * SPDX-License-Identifier: CC0-1.0
  */
 
+// Enable this to have the ESP32-S3 act as a serial bridge.
+// Undefine it to have it tristate the pins.
+//#define USB_SERIAL_BRIDGE
+
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
@@ -109,6 +113,7 @@ void simple_wifi(void);
  */
 void app_main(void)
 {
+#ifdef USB_SERIAL_BRIDGE
     TaskHandle_t host_lib_task_hdl;
 
     wilma_start();
@@ -131,5 +136,7 @@ void app_main(void)
     ulTaskNotifyTake(false, 1000);
 
     serial_port_relay();
-    // tristate_usb();
+#else
+    tristate_usb();
+#endif
 }
