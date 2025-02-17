@@ -117,9 +117,9 @@ static void on_data_received_from_rfc2217(void *ctx, const uint8_t *data, size_t
 {
     if (cdc_dev != NULL)
     {
-        ESP_LOGI(TAG, "%d bytes received from TCP -- forwarding to device", len);
-        ESP_LOG_BUFFER_HEXDUMP(TAG, data, len, ESP_LOG_INFO);
         esp_err_t ret = cdc_acm_host_data_tx_blocking(cdc_dev, data, len, 1000);
+        ESP_LOGI(TAG, "%d bytes received from TCP -- forwarded to device", len);
+        ESP_LOG_BUFFER_HEXDUMP(TAG, data, len, ESP_LOG_INFO);
         if (ret != ESP_OK)
         {
             ESP_LOGE(TAG, "Error sending data to USB: %d (%s)", ret, esp_err_to_name(ret));
@@ -130,8 +130,6 @@ static void on_data_received_from_rfc2217(void *ctx, const uint8_t *data, size_t
 static bool on_data_received_from_usb(const uint8_t *data, size_t data_len, void *ringbuf_hdl_ptr)
 {
     RingbufHandle_t ringbuf_hdl = ringbuf_hdl_ptr;
-    ESP_LOGI(TAG, "%d bytes received from device -- forwarding to TCP", data_len);
-    ESP_LOG_BUFFER_HEXDUMP(TAG, data, data_len, ESP_LOG_INFO);
     if (!s_client_connected)
     {
         return true;
@@ -158,7 +156,9 @@ static void usb_to_network(void *ringbuf_hdl_ptr)
         }
 
         rfc2217_server_send_data(s_server, data, size);
-
+        ESP_LOGI(TAG, "%d bytes received from device -- forwarded to TCP", size);
+        ESP_LOG_BUFFER_HEXDUMP(TAG, data, size, ESP_LOG_INFO);
+    
         vRingbufferReturnItem(ringbuf_hdl, data);
     }
 }
@@ -166,7 +166,15 @@ static void usb_to_network(void *ringbuf_hdl_ptr)
 void serial_port_relay(void)
 {
     ESP_LOGI(TAG, "Installing CDC-ACM driver");
-    ESP_ERROR_CHECK(cdc_acm_host_install(NULL));
+
+    const cdc_acm_host_driver_config_t cdc_acm_driver_config = {
+        .driver_task_stack_size = 4096,
+        .driver_task_priority = 15,
+        .xCoreID = 1,
+        .new_dev_cb = NULL,
+    };
+    
+    ESP_ERROR_CHECK(cdc_acm_host_install(&cdc_acm_driver_config));
     s_device_disconnected_sem = xSemaphoreCreateBinary();
     TaskHandle_t usb_to_network_task = NULL;
     RingbufHandle_t usb_to_network_buffer = xRingbufferCreate(1024, RINGBUF_TYPE_BYTEBUF);

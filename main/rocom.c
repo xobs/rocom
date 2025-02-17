@@ -6,13 +6,10 @@
 
 // Enable this to have the ESP32-S3 act as a serial bridge.
 // Undefine it to have it tristate the pins.
-//#define USB_SERIAL_BRIDGE
-
-#include <stdio.h>
-#include <string.h>
-#include <inttypes.h>
+#define USB_SERIAL_BRIDGE
 
 #include <driver/gpio.h>
+
 #include <esp_system.h>
 #include <esp_log.h>
 #include <esp_err.h>
@@ -21,14 +18,22 @@
 #include <freertos/task.h>
 #include <freertos/semphr.h>
 
+#include <inttypes.h>
+
+#include <nvs_flash.h>
+
+#include <stdio.h>
+#include <string.h>
+
 #include <usb/usb_host.h>
 
+#include "http.h"
 #include "kacha.h"
 #include "wilma.h"
 
 static const char *TAG = "rocom";
 
-#define HOST_LIB_TASK_PRIORITY 9
+#define HOST_LIB_TASK_PRIORITY 11
 
 extern void serial_port_relay(void);
 
@@ -114,12 +119,23 @@ void simple_wifi(void);
 void app_main(void)
 {
 #ifdef USB_SERIAL_BRIDGE
+    esp_err_t ret;
     TaskHandle_t host_lib_task_hdl;
+
+    // [Re]initialize NonVolatile Storage
+    ret = nvs_flash_init();
+	if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+		ESP_ERROR_CHECK(nvs_flash_erase());
+		ret = nvs_flash_init();
+	}
+	ESP_ERROR_CHECK(ret);
 
     wilma_start();
     // simple_wifi();
     configure_reset_boot();
     reset_target_bootloader();
+
+    webserver_start();
 
     // Create usb host lib task
     BaseType_t task_created;

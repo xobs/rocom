@@ -1127,7 +1127,7 @@ static void wifi_configure_softap(bool force_on)
 
 	ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_ap_config));
 
-	ESP_LOGD(TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d", wifi_ap_config.ap.ssid,
+	ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d", wifi_ap_config.ap.ssid,
 		wifi_ap_config.ap.password[0] ? (char *)wifi_ap_config.ap.password : "[Open]", wifi_ap_config.ap.channel);
 }
 

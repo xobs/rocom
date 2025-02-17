@@ -8,7 +8,7 @@ menu "Wilma Configuration"
 
     config WILMA_AP_SSID_PREFIX
         string "Access Point SSID Prefix"
-        default "Farpatch"
+        default "WiLma"
         help
         SSID (network name) that the device will broadcast.
 

@@ -24,7 +24,7 @@
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
 
-static const char *TAG = "uart-tcp";
+static const char *TAG = "simple-wifi";
 static EventGroupHandle_t wifi_event_grp;
 
 #define WIFI_CONNECTED_BIT BIT0
@@ -91,11 +91,7 @@ static esp_err_t wifi_init(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_event_handler_instance_register(ESP_EVENT_ANY_BASE, ESP_EVENT_ANY_ID, esp_event_handler, NULL, NULL);
 
-    esp_netif_create_default_wifi_sta();
-    esp_netif_create_default_wifi_ap();
-
-    esp_netif_t *esp_netif = NULL;
-    esp_netif = esp_netif_next(esp_netif);
+    esp_netif_t *esp_netif = esp_netif_create_default_wifi_sta();
     esp_netif_set_hostname(esp_netif, "espressif-usbipd");
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();

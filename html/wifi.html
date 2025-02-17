@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <script type="text/javascript">
+        // First, checks if it isn't implemented yet.
+        if (!String.prototype.format) {
+            String.prototype.format = function () {
+                var args = arguments;
+                return this.replace(/{(\d+)}/g, function (match, number) {
+                    return typeof args[number] != 'undefined'
+                        ? args[number]
+                        : match
+                        ;
+                });
+            };
+        }
+
+        var apList = null;
+        var selectedSSID = "";
+        var refreshAPInterval = null;
+        var checkStatusInterval = null;
+
+        function stopCheckStatusInterval() {
+            if (checkStatusInterval != null) {
+                clearInterval(checkStatusInterval);
+                checkStatusInterval = null;
+            }
+        }
+
+        function stopRefreshAPInterval() {
+            if (refreshAPInterval != null) {
+                clearInterval(refreshAPInterval);
+                refreshAPInterval = null;
+            }
+        }
+
+        function startCheckStatusInterval() {
+            checkStatusInterval = setInterval(checkStatus, 950);
+        }
+
+        function startRefreshAPInterval() {
+            refreshAPInterval = setInterval(refreshAP, 2800);
+        }
+
+        const slideUp = (selector, callback) => {
+            const element = document.querySelector(selector);
+            if (element) {
+                element.style.transition = "max-height 0.3s ease-out";
+                element.style.maxHeight = "0";
+                element.addEventListener('transitionend', () => {
+                    element.style.display = "none";
+                    if (callback) callback();
+                }, { once: true });
+            }
+        };
+
+        const slideDown = (selector, callback) => {
+            const element = document.querySelector(selector);
+            if (element) {
+                element.style.display = "block";
+                element.style.maxHeight = `${element.scrollHeight}px`;
+                if (callback) callback();
+            }
+        };
+
+        const setText = (selector, text) => {
+            const element = document.querySelector(selector);
+            if (element) {
+                element.textContent = text;
+            }
+        };
+
+        const toggleVisibility = (selector, show) => {
+            const element = document.querySelector(selector);
+            if (element) {
+                element.style.display = show ? "block" : "none";
+            }
+        };
+
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const selectedSSID = { value: "" };
+
+            document.querySelector('#wifi-status').addEventListener('click', (event) => {
+                if (event.target.classList.contains('ape')) {
+                    slideUp('#wifi');
+                    slideDown('#connect-details');
+                }
+            });
+
+            document.querySelector('#manual_add').addEventListener('click', (event) => {
+                if (event.target.classList.contains('ape')) {
+                    selectedSSID.value = event.target.textContent;
+                    setText('#ssid-pwd', selectedSSID.value);
+                    slideUp('#wifi');
+                    slideDown('#connect_manual');
+                    slideUp('#connect');
+                    toggleVisibility('#loading', true);
+                    toggleVisibility('#connect-success', false);
+                    toggleVisibility('#connect-fail', false);
+                }
+            });
+
+            document.querySelector('#wifi-list').addEventListener('click', (event) => {
+                if (event.target.classList.contains('ape')) {
+                    selectedSSID.value = event.target.textContent;
+                    setText('#ssid-pwd', selectedSSID.value);
+                    slideUp('#wifi');
+                    slideUp('#connect_manual');
+                    slideDown('#connect');
+                    toggleVisibility('#loading', true);
+                    toggleVisibility('#connect-success', false);
+                    toggleVisibility('#connect-fail', false);
+                }
+            });
+
+            document.querySelector('#cancel').addEventListener('click', () => {
+                selectedSSID.value = "";
+                slideUp('#connect');
+                slideUp('#connect_manual');
+                slideDown('#wifi');
+            });
+
+            document.querySelector('#manual_cancel').addEventListener('click', () => {
+                selectedSSID.value = "";
+                slideUp('#connect');
+                slideUp('#connect_manual');
+                slideDown('#wifi');
+            });
+
+            document.querySelector('#join').addEventListener('click', () => {
+                performConnect();
+            });
+
+            document.querySelector('#manual_join').addEventListener('click', (event) => {
+                performConnect(event.target.dataset.connect);
+            });
+
+            document.querySelector('#ok-details').addEventListener('click', () => {
+                slideUp('#connect-details');
+                slideDown('#wifi');
+            });
+
+            document.querySelector('#ok-credits').addEventListener('click', () => {
+                slideUp('#credits');
+                slideDown('#app');
+            });
+
+            document.querySelector('#acredits').addEventListener('click', (event) => {
+                event.preventDefault();
+                slideUp('#app');
+                slideDown('#credits');
+            });
+
+            document.querySelector('#ok-connect').addEventListener('click', () => {
+                slideUp('#connect-wait');
+                slideDown('#wifi');
+            });
+
+            document.querySelector('#disconnect').addEventListener('click', () => {
+                document.querySelector('#connect-details-wrap').classList.add('blur');
+                slideDown('#diag-disconnect');
+            });
+
+            document.querySelector('#no-disconnect').addEventListener('click', () => {
+                slideUp('#diag-disconnect');
+                document.querySelector('#connect-details-wrap').classList.remove('blur');
+            });
+
+            document.querySelector('#yes-disconnect').addEventListener('click', () => {
+                stopCheckStatusInterval();
+                selectedSSID.value = "";
+                slideUp('#diag-disconnect');
+                document.querySelector('#connect-details-wrap').classList.remove('blur');
+
+                fetch('/fp/sta/connect', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ timestamp: Date.now() })
+                });
+
+                startCheckStatusInterval();
+                slideUp('#connect-details');
+                slideDown('#wifi');
+            });
+
+            refreshAP();
+            startCheckStatusInterval();
+            startRefreshAPInterval();
+        });
+
+
+
+        function performConnect(conntype) {
+            // Stop the status refresh to prevent race conditions
+            stopCheckStatusInterval();
+
+            // Stop refreshing the Wi-Fi list
+            stopRefreshAPInterval();
+
+            let pwd;
+            if (conntype === 'manual') {
+                // Grab the manual SSID and password
+                selectedSSID = document.querySelector('#manual_ssid').value;
+                pwd = document.querySelector('#manual_pwd').value;
+            } else {
+                pwd = document.querySelector('#pwd').value;
+            }
+
+            // Reset connection status
+            toggleVisibility('#loading', true);
+            toggleVisibility('#connect-success', false);
+            toggleVisibility('#connect-fail', false);
+
+            const okConnectButton = document.querySelector('#ok-connect');
+            if (okConnectButton) okConnectButton.disabled = true;
+
+            const ssidWaitElement = document.querySelector('#ssid-wait');
+            if (ssidWaitElement) ssidWaitElement.textContent = selectedSSID;
+
+            slideUp('#connect');
+            slideUp('#connect_manual');
+            slideDown('#connect-wait');
+
+            // Perform the connection request
+            fetch('/fp/sta/connect', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Custom-ssid': selectedSSID,
+                    'X-Custom-pwd': pwd
+                },
+                body: JSON.stringify({ timestamp: Date.now() }),
+                cache: 'no-cache'
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log("Connection response:", data);
+                })
+                .catch(error => {
+                    console.error("Error during connection request:", error);
+                });
+
+            // Re-set the intervals regardless of the result
+            startCheckStatusInterval();
+            startRefreshAPInterval();
+        }
+
+        function rssiToIcon(rssi) {
+            if (rssi >= -60) {
+                return 'w0';
+            }
+            else if (rssi >= -67) {
+                return 'w1';
+            }
+            else if (rssi >= -75) {
+                return 'w2';
+            }
+            else {
+                return 'w3';
+            }
+        }
+
+        async function refreshAP() {
+            try {
+                const response = await fetch("/api/sta");
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.length > 0) {
+                    // Sort by signal strength (rssi) in descending order
+                    data.sort((a, b) => b.rssi - a.rssi);
+
+                    apList = data; // Assuming `apList` is a globally declared variable
+                    refreshAPHTML(apList);
+                }
+            } catch (error) {
+                console.error("Failed to refresh access points:", error);
+            }
+        }
+
+        function refreshAPHTML(data) {
+            let htmlContent = data.map((e, idx, array) => {
+                const isLast = idx === array.length - 1;
+                const brdbClass = isLast ? '' : ' brdb';
+                const rssiIconClass = rssiToIcon(e.rssi);
+                const passwordClass = e.auth === 0 ? '' : 'pw';
+                return `
+            <div class="ape${brdbClass}">
+                <div class="${rssiIconClass}">
+                    <div class="${passwordClass}">${e.ssid}</div>
+                </div>
+            </div>
+        `;
+            }).join("\n");
+
+            const wifiListElement = document.querySelector("#wifi-list");
+            if (wifiListElement) {
+                wifiListElement.innerHTML = htmlContent;
+            }
+        }
+
+        async function checkStatus() {
+            try {
+                const response = await fetch("/api/sta/status");
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.hasOwnProperty('ssid') && data['ssid'] !== "") {
+                    if (data["ssid"] === selectedSSID) {
+                        // Connection attempt
+                        if (data["urc"] === 0) {
+                            // Successful connection
+                            document.querySelector("#connected-to span").textContent = data["ssid"];
+                            document.querySelector("#connect-details h1").textContent = data["ssid"];
+                            document.querySelector("#ip").textContent = data["ip"];
+                            document.querySelector("#netmask").textContent = data["netmask"];
+                            document.querySelector("#gw").textContent = data["gw"];
+                            slideDown("#wifi-status");
+
+                            // Unlock the wait screen if needed
+                            document.querySelector("#ok-connect").disabled = false;
+
+                            // Update wait screen
+                            toggleVisibility("#loading", false);
+                            toggleVisibility("#connect-success", true);
+                            toggleVisibility("#connect-fail", false);
+
+                            // Redirect to the main page after 5 seconds
+                            setTimeout(() => {
+                                window.location.href = `http://${data["ip"]}`;
+                            }, 5000);
+                        } else if (data["urc"] === 1) {
+                            // Failed attempt
+                            document.querySelector("#connected-to span").textContent = '';
+                            document.querySelector("#connect-details h1").textContent = '';
+                            document.querySelector("#ip").textContent = '0.0.0.0';
+                            document.querySelector("#netmask").textContent = '0.0.0.0';
+                            document.querySelector("#gw").textContent = '0.0.0.0';
+
+                            // Hide connection status
+                            slideUp("#wifi-status");
+
+                            // Unlock the wait screen
+                            document.querySelector("#ok-connect").disabled = false;
+
+                            // Update wait screen
+                            toggleVisibility("#loading", false);
+                            toggleVisibility("#connect-fail", true);
+                            toggleVisibility("#connect-success", false);
+                        }
+                    } else if (data.hasOwnProperty('urc') && data['urc'] === 0) {
+                        // Already connected to Wi-Fi
+                        if (!document.querySelector("#wifi-status").classList.contains('visible')) {
+                            document.querySelector("#connected-to span").textContent = data["ssid"];
+                            document.querySelector("#connect-details h1").textContent = data["ssid"];
+                            document.querySelector("#ip").textContent = data["ip"];
+                            document.querySelector("#netmask").textContent = data["netmask"];
+                            document.querySelector("#gw").textContent = data["gw"];
+                            slideDown("#wifi-status");
+                        }
+                    }
+                } else if (data.hasOwnProperty('urc') && data['urc'] === 2) {
+                    // Manual disconnect
+                    if (document.querySelector("#wifi-status").classList.contains('visible')) {
+                        slideUp("#wifi-status");
+                    }
+                }
+            } catch (error) {
+                // Don't do anything, the server might be down while ESP32 recalibrates radio
+                console.error("Failed to fetch status:", error);
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #eee;
+            border: 0;
+            margin: 0;
+            font: 1.1em tahoma, arial, sans-serif;
+        }
+
+        a {
+            color: darkblue;
+            transition: color .2s ease-out;
+            text-decoration: none
+        }
+
+        a:hover {
+            color: red;
+        }
+
+        input {
+            display: none;
+            font: 1.1em tahoma, arial, sans-serif;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus,
+        button:focus {
+            outline: none;
+        }
+
+        input[type="button"] {
+            width: 100px;
+            padding: 5px;
+            text-align: center;
+            display: block;
+        }
+
+        p {
+            padding: 10px;
+        }
+
+        #credits {
+            display: none;
+        }
+
+        #disconnect {
+            width: 150px;
+        }
+
+        .diag-box {
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            height: 100%;
+            width: 100%;
+            display: none;
+        }
+
+        .diag-box-win {
+            position: absolute;
+            left: 10%;
+            width: 80%;
+            text-align: center;
+            border: 2px outset #888;
+            background-color: #fff;
+            border-radius: 10px;
+            top: 20%;
+        }
+
+        .blur {
+            -webkit-filter: blur(2px);
+            -moz-filter: blur(2px);
+            -ms-filter: blur(2px);
+            -o-filter: blur(2px);
+            filter: blur(2px);
+        }
+
+        .ape {
+            margin-left: 20px;
+            padding: 10px 0px 10px 10px;
+        }
+
+        .ape:hover {
+            cursor: pointer;
+        }
+
+        .brdb {
+            border-bottom: 1px solid #888;
+        }
+
+        header {
+            background-color: #fff;
+            border-bottom: 1px solid #888;
+        }
+
+        section {
+            background-color: #fff;
+            border-bottom: 1px solid #888;
+            border-top: 1px solid #888;
+        }
+
+        h1 {
+            display: block;
+            text-align: center;
+            margin: 0;
+            padding: 15px;
+            font-size: 1.4em
+        }
+
+        h2 {
+            margin: 0;
+            margin-top: 20px;
+            padding: 10px;
+            text-transform: uppercase;
+            color: #888;
+            font-size: 1.0em
+        }
+
+        h3 {
+            margin: 0;
+            text-align: center;
+            padding: 20px 0px 20px 0px;
+        }
+
+        .gr {
+            color: green;
+        }
+
+        .rd {
+            color: red;
+        }
+
+        #wifi-status {
+            display: none;
+        }
+
+        #connect {
+            display: none;
+        }
+
+        #connect_manual {
+            display: none;
+        }
+
+        #manual_ssid {
+            border: none;
+            width: 80%;
+            margin-left: 35px;
+            padding: 10px 0px 10px 10px;
+            display: block
+        }
+
+        #manual_pwd {
+            border: none;
+            width: 80%;
+            margin-left: 35px;
+            padding: 10px 0px 10px 10px;
+            display: block
+        }
+
+        #pwd {
+            border: none;
+            width: 80%;
+            margin-left: 35px;
+            padding: 10px 0px 10px 10px;
+            display: block
+        }
+
+        .buttons {
+            padding: 15px;
+        }
+
+        #join {
+            float: right;
+        }
+
+        #manual_join {
+            float: right;
+        }
+
+        #yes-disconnect {
+            display: inline-block;
+            margin-left: 20px;
+        }
+
+        #no-disconnect {
+            display: inline-block;
+        }
+
+        .ctr {
+            margin: 0 auto;
+        }
+
+        .tctr {
+            text-align: center;
+        }
+
+        #connect-wait {
+            display: none;
+        }
+
+        #connect-success {
+            display: none;
+        }
+
+        #connect-fail {
+            display: none;
+        }
+
+        #connect-details {
+            display: none;
+        }
+
+        .fr {
+            float: right;
+            margin-right: 20px;
+        }
+
+        .w0 {
+            background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAACxIAAAsSAdLdfvwAAAAZdEVYdFNvZnR3YXJlAHBhaW50Lm5ldCA0LjAuMTJDBGvsAAABzUlEQVRIS+WUTShEURTH3zyRhjQ+8hWxmCJMoSzEwsbCgi1LZRYW9pONptiwka9iI81CWFpYaEqNMkVKmpWN1IhYKN9ZDL/z3p3mxZh5g9X4168799xz/vPefedeLeuVC+3gdTgc07CsmCQ2DI2gg21Jci30wSpGt/CeghickTsHPVACDkgqp67rPgpO4E0ZZMIj7OHhxSvPtEyomcVDeFXJv+EZNvEsNa01rZfAuSUhThR2wU+ObJkbyhRNMMDaDIThBqy1MdZ3wAPawqfFC2Lj0Ab5kpBGxdAJs9TeW72ITUhCPZMjFYwwbwXpnkwlDzOIx50yXwP5c0MeggHGanNqSDqqBqQ7/Kxvg2zHAfMN8IE8uZhYO6eBnBXGKnOakLWfaQZ9jMRjSPXhZUuC5A9JjVFpKkeNSVVA0Tq8KJN0yFl4gilqbW2tm+SQKoybXIG8jcT34RSsh1Byt6iVg2ZLlRCg6JpROqEDpFheXZ5S9rcLFsl5YJwHad+MVA5y13w5lRY5oRsKjdm/Vz/7LR86zG+5wr+9NX+iOowjEO+aELEic+lv1ILppeUPosRst6QduTANgnE2mC+BnYswI1VwfYzCCL9dZij7pWkf6UeSTYAuE/QAAAAASUVORK5CYII=') no-repeat right top;
+            height: 24px;
+            margin-right: 20px;
+        }
+
+        .w1 {
+            background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABGdBTUEAALGPC/xhBQAAAAlwSFlzAAALEQAACxEBf2RfkQAAABl0RVh0U29mdHdhcmUAcGFpbnQubmV0IDQuMC4xNkRpr/UAAAHiSURBVEhL5dRPKINxHMfxPVskpA35F3FYEVasHBYHFwcHrhyVZ8vBfblIceEi/4qLtINwdHCQUpQVKcnJRYqIg/J3OYz399nv0YPNtuzEt149+31/v+/n4fGYLVHpup4Rnyregd+K27TIghe63+8fx7wySqsPdbAj3qzha0MOV6ETiwTd4u0HUZxydgrtKISGj0xreG4gEAgycIRXFZCOR2yTQZSebeaa4Q1s7iOiDv/GM1bJLDJv0EHjzHLAdIFNjHBGHpkbxUo9utmbQBg3sM5G2d+AR24w82XznN4QmpGjXrCExRkXfJhk9t6aRW9YDtSwOFDNE9ZNyFLzKRczOegh406FL8ElG8JDM8S1Qtaq7KhEO0Y0TVtHGHusVxCEDy5oMLNqyVrgWm5kqaYw3mdVdmqQsENE8JbAPbY43yszMqiyHOr66QayL5XH0DJeVEgyUTxhjNmPR/vtBpZyc3hHDZohV5DfRvq7OMYtrDdZY7YwFpG8yhBi6JrrMFogww7IT1mOVsxy5oHrNIqRVpWgDtnGKn7log35xurfVxfPW/7QYT57Ybz7mapqgk9gvjU79ApiW5mpRkIvLTe4oJfyK5lKOQndgvG/wXoOSb8I061Svj4G0M9nZ6z198tmeweYtIrMYP17VAAAAABJRU5ErkJggg==') no-repeat right top;
+            height: 24px;
+            margin-right: 20px;
+        }
+
+        .w2 {
+            background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABGdBTUEAALGPC/xhBQAAAAlwSFlzAAALEQAACxEBf2RfkQAAABl0RVh0U29mdHdhcmUAcGFpbnQubmV0IDQuMC4xNkRpr/UAAAHkSURBVEhL3dRLKERRGMDxuSPSkLzyilgo8iiUhVjYWFiwZancmSzsZSPFho28io1kISwtLKQURZGSrGykiFgo7yyG/zdzznRm5iK5Sk79uvd85/u++5hzx2Pb9q9yDLrJMWhIRB1sv98/ghlliFAXyuGFU21IbECSi9CKORrd4O0TQZyQO45mZMJCpKfZ3BcIBPooOMSravAdD9ikB63sJN1XN69kcQ8vKvknnrBMzyx9gRYCp0aCdo51DJIjr6wU2UoF2lkbxS6uYdYGWV9DtVxgMmbxjFg/apEM/ZQfyUADxqi9M3sRG5CEEib7KnjMvAaye2IbfUVupoMet6r5PDL0YjXBBY4Fai5kRxVCdscg66uQ17HDfAl9kDuXJzB3Thk5sxzzZa6DumHknN3QS+IBPvvh5ZVskN8ZU5+gz3XAlELRIp5Vk6/It/CIYWrjXm3URCkleUsV6iaXkKeR+DaOYH6EkrtCrXxoUf2iJoY8LFB0xXEA9ZBieXS5S3m/jZgi557jBGT7xvWKCxhyIP81ka/SgQ9NSDViURyDbvpTo82yrAPscl4HKxR1aRTT+BhvyhaxtPCSO6OKphfGBc6JZYaX3BnpNN1AUC7AfBrJoRUXR67X6+1BN+fp4dD/Hx7PO4o9VGuAapKIAAAAAElFTkSuQmCC') no-repeat right top;
+            height: 24px;
+            margin-right: 20px;
+        }
+
+        .w3 {
+            background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAZdEVYdFNvZnR3YXJlAHBhaW50Lm5ldCA0LjAuMTZEaa/1AAACAElEQVRIS7XUP0gbYRjH8VSpiBZJWvEflXYQKtqACg6ig4uDg651LPQSHLpLlyDoUhdpVdBFxEG0YwcHCQgRFJSCFKcuUohY6iC0VYtD9PuE9w3vXZ74h16HD3fv733e53KX9y7ied5/pYZhUkPHQ3TBSyQS7zFvTBC9RivKoK3NCwZS3IxBLNLoBFc3yOEbtR/Qj8d4gEJPt3lVMpkcY8E+Lk2D+/iDTXrQyquwfW3zdiZ38dcU/4tzrNHzib3AAMGhU2BlsYFxauSRtaDWaMMwc1PYwU+4a3PMryMuF5gJTH4ne4dOVMLeZSkx9GCatb/cXmQpKXjOYM+EB4w7ILsn2Og28mNe0ePUNF9CzE7GCZc5NpmxkB31FLI7xpn/DHkc24xXMQb55XIH7s55Qc0Cx0YZ29A2LJyzG95S+AU3/fHySNLUjwTWl9tzG7iqWbSCC9PkNvIunGGStUWP1jcwWijOmIW2yTHkbiTfwle4L6HUfmKtvGi+fr6BowHLLPrBMYVuyGK5dfmV8nx7MUvNb44fIdu3qFdR4KiDfGsKb6WiCn145GQ+ahgmNQyTGpYwxPOWP3qHc/mE+76apaih4hmND2B3TYasJlCjUkPFS5oeORfIkhVtSY0aKqI0TSP/bjCew10+hPf6D+r5fIziDefRwFxJahgmNQyPF7kGEsc1es+A2E4AAAAASUVORK5CYII=') no-repeat right top;
+            height: 24px;
+            margin-right: 20px;
+        }
+
+        .pw {
+            background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAACxIAAAsSAdLdfvwAAAAZdEVYdFNvZnR3YXJlAHBhaW50Lm5ldCA0LjAuMTJDBGvsAAABIUlEQVRIS+3VsU7CUBTGcYhBJCwqwcmEJ2DkCQgzb8ADmLgYWXTzMVjcGNjYGEAXgoSRhTg5OroYIyFY/h+hWGwvtzQ0LpzkF8i5l/uRQ2kTjuPEKrC5T79vzHWJO4wxwzeGuMY5AitsQBFvmEObvNQboQBfhQk4gQ5wD+zgBrcYrHrSwzE2KkxAHVrQWB6QgiqJLB7xA+2pYaNsAWm8QAsa0Sn+1gU+oT1NHGFdtoAcJtBCSw1DuaPqQiNdly0gj1doQaMwleavPc+IJUDffKeADO7Rxxe08A4dEOQD2qPXJ1xh+VuYAirQVaNGFFPov2MM0OXm/UAUZRwCtjoEWP1vQBXuLTgKPYRKMAacoY0oIboDNLB8+PgC4hLY3B8nsQCQEf56jLJoQAAAAABJRU5ErkJggg==') no-repeat right top;
+            height: 24px;
+            margin-right: 20px;
+            height: 24px;
+            margin-right: 30px;
+        }
+
+        /* SpinKit is licensed under the MIT License. Copyright (c) 2015 Tobias Ahlin */
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            position: relative;
+            margin: 100px auto;
+        }
+
+        .double-bounce1,
+        .double-bounce2 {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background-color: #333;
+            opacity: 0.6;
+            position: absolute;
+            top: 0;
+            left: 0;
+            -webkit-animation: sk-bounce 2.0s infinite ease-in-out;
+            animation: sk-bounce 2.0s infinite ease-in-out;
+        }
+
+        .double-bounce2 {
+            -webkit-animation-delay: -1.0s;
+            animation-delay: -1.0s;
+        }
+
+        @-webkit-keyframes sk-bounce {
+
+            0%,
+            100% {
+                -webkit-transform: scale(0.0)
+            }
+
+            50% {
+                -webkit-transform: scale(1.0)
+            }
+        }
+
+        @keyframes sk-bounce {
+
+            0%,
+            100% {
+                transform: scale(0.0);
+                -webkit-transform: scale(0.0);
+            }
+
+            50% {
+                transform: scale(1.0);
+                -webkit-transform: scale(1.0);
+            }
+        }
+
+        /* end of SpinKit */
+    </style>
+    <title>WiLma</title>
+</head>
+
+<body>
+    <div id="app">
+        <div id="app-wrap">
+            <div id="wifi">
+                <header>
+                    <h1>Wi-Fi</h1>
+                </header>
+                <div id="wifi-status">
+                    <h2>Connected to:</h2>
+                    <section id="connected-to">
+                        <div class="ape">
+                            <div class="w0">
+                                <div class="pw"><span></span></div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+                <h2>Manual connect</h2>
+                <section id="manual_add">
+                    <div class="ape">ADD (HIDDEN) SSID<div>
+                </section>
+                <h2>or choose a network...</h2>
+                <section id="wifi-list">
+                </section>
+                <div id="pwrdby"><em>Powered by </em><a id="acredits" href="#"><strong>WiLma</strong></a>.
+                </div>
+            </div>
+            <div id="connect_manual">
+                <header>
+                    <h1>Enter Details</h1>
+                </header>
+                <h2>Manual Connection</span></h2>
+                <section>
+                    <input id="manual_ssid" type="text" placeholder="SSID" value="">
+                    <input id="manual_pwd" type="password" placeholder="Password" value="">
+                </section>
+                <div class="buttons">
+                    <input id="manual_join" type="button" value="Join" data-connect="manual" />
+                    <input id="manual_cancel" type="button" value="Cancel" />
+                </div>
+            </div>
+            <div id="connect">
+                <header>
+                    <h1>Enter Password</h1>
+                </header>
+                <h2>Password for <span id="ssid-pwd"></span></h2>
+                <section>
+                    <input id="pwd" type="password" placeholder="Password" value="">
+                </section>
+                <div class="buttons">
+                    <input id="join" type="button" value="Join" />
+                    <input id="cancel" type="button" value="Cancel" />
+                </div>
+            </div>
+            <div id="connect-wait">
+                <header>
+                    <h1>Please wait...</h1>
+                </header>
+                <h2>Connecting to <span id="ssid-wait"></span></h2>
+                <section>
+                    <div id="loading">
+                        <div class="spinner">
+                            <div class="double-bounce1"></div>
+                            <div class="double-bounce2"></div>
+                        </div>
+                        <p class="tctr">You may lose wifi access while the esp32 recalibrates its radio. Please wait
+                            until your device automatically reconnects. This can take up to 30s.</p>
+                    </div>
+                    <div id="connect-success">
+                        <h3 class="gr">Success!</h3>
+                    </div>
+                    <div id="connect-fail">
+                        <h3 class="rd">Connection failed</h3>
+                        <p class="tctr">Please double-check wifi password if any and make sure the access point has good
+                            signal.</p>
+                    </div>
+                </section>
+                <div class="buttons">
+                    <input id="ok-connect" type="button" value="OK" class="ctr" />
+                </div>
+            </div>
+            <div id="connect-details">
+                <div id="connect-details-wrap">
+                    <header>
+                        <h1></h1>
+                    </header>
+                    <h2></h2>
+                    <section>
+                        <div class="buttons">
+                            <input id="disconnect" type="button" value="Disconnect" class="ctr" />
+                        </div>
+                    </section>
+                    <h2>IP Address</h2>
+                    <section>
+                        <div class="ape brdb">IP Address:<div id="ip" class="fr"></div>
+                        </div>
+                        <div class="ape brdb">Subnet Mask:<div id="netmask" class="fr"></div>
+                        </div>
+                        <div class="ape">Default Gateway:<div id="gw" class="fr"></div>
+                        </div>
+                    </section>
+                    <div class="buttons">
+                        <input id="ok-details" type="button" value="OK" class="ctr" />
+                    </div>
+                </div>
+                <div id="diag-disconnect" class="diag-box">
+                    <div class="diag-box-win">
+                        <p>Are you sure you would like to disconnect from this wifi?</p>
+                        <div class="buttons">
+                            <input id="no-disconnect" type="button" value="No" />
+                            <input id="yes-disconnect" type="button" value="Yes" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="credits">
+        <header>
+            <h1>About this app...</h1>
+        </header>
+        <h2></h2>
+        <section>
+            <p><strong>WiLma</strong>, &copy; 2023-2024, Sean Cross<br />Licender under the MIT License.
+            </p>
+            <p>
+                This app would not be possible without the following libraries:
+            </p>
+            <ul>
+                <li>esp32-wifi-manager &copy; 2017-2019, Tony Pottier. Licensed under the MIT License.</li>
+                <li>SpinKit, &copy; 2015, Tobias Ahlin. Licensed under the MIT License.</li>
+            </ul>
+        </section>
+        <div class="buttons">
+            <input id="ok-credits" type="button" value="OK" class="ctr" />
+        </div>
+    </div>
+</body>
+<html>

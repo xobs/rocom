@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include "esp_attr.h"
 #include "esp_log.h"
 // #include "esp_pthread.h"
 #include "rfc2217_server.h"
@@ -320,7 +321,7 @@ CLEAN_UP:
 }
 
 
-static void *tcp_receive_thread_fn(void *ctx /* rfc2217_server_t server */)
+static IRAM_ATTR void *tcp_receive_thread_fn(void *ctx /* rfc2217_server_t server */)
 {
     rfc2217_server_t server = (rfc2217_server_t)ctx;
     ESP_LOGI(TAG, "TCP receive thread started, socket: %d", server->client_socket);
@@ -331,6 +332,15 @@ static void *tcp_receive_thread_fn(void *ctx /* rfc2217_server_t server */)
     server->collecting_suboption = false;
     server->suboption_size = 0;
     server->telnet_mode = T_NORMAL;
+
+    // /* Use TCP_NODELAY option to force socket to send data in buffer
+    //  * This ensures that the error message is sent before the socket
+    //  * is closed */
+    // int nodelay = 0;
+    // if (setsockopt(server->client_socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)) < 0) {
+    //     /* If failed to turn on TCP_NODELAY, throw warning and continue */
+    //     ESP_LOGW(TAG, "error calling setsockopt : %d", errno);
+    // }
 
     do {
         len = recv(server->client_socket, server->tcp_rx_buffer, sizeof(server->tcp_rx_buffer) - 1, 0);
@@ -374,7 +384,7 @@ static void tcp_send(rfc2217_server_t server, const void *buf, size_t size)
     pthread_mutex_unlock(&server->tcp_send_mutex);
 }
 
-static void process_received_over_tcp(rfc2217_server_t server, const uint8_t *buf, size_t size)
+static IRAM_ATTR void process_received_over_tcp(rfc2217_server_t server, const uint8_t *buf, size_t size)
 {
     // fast path: if we are not in telnet mode and there is no IAC, just pass the data on to the callback
     if (server->telnet_mode == T_NORMAL && memchr(buf, T_IAC, size) == NULL) {
