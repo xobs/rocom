@@ -7,7 +7,7 @@
 
 #include "rfc2217_server.h"
 
-#define USB_TO_NETWORK_TASK_PRIORITY 6
+#define USB_TO_NETWORK_TASK_PRIORITY 14
 
 static const char *TAG = "USB-CDC";
 
@@ -113,13 +113,13 @@ static void on_disconnected(void *ctx)
     s_client_connected = false;
 }
 
-static void on_data_received_from_rfc2217(void *ctx, const uint8_t *data, size_t len)
+static void IRAM_ATTR on_data_received_from_rfc2217(void *ctx, const uint8_t *data, size_t len)
 {
     if (cdc_dev != NULL)
     {
         esp_err_t ret = cdc_acm_host_data_tx_blocking(cdc_dev, data, len, 1000);
-        ESP_LOGI(TAG, "%d bytes received from TCP -- forwarded to device", len);
-        ESP_LOG_BUFFER_HEXDUMP(TAG, data, len, ESP_LOG_INFO);
+        // ESP_LOGI(TAG, "%d bytes received from TCP -- forwarded to device", len);
+        // ESP_LOG_BUFFER_HEXDUMP(TAG, data, len, ESP_LOG_INFO);
         if (ret != ESP_OK)
         {
             ESP_LOGE(TAG, "Error sending data to USB: %d (%s)", ret, esp_err_to_name(ret));
@@ -134,7 +134,7 @@ static bool on_data_received_from_usb(const uint8_t *data, size_t data_len, void
     {
         return true;
     }
-    if (unlikely(xRingbufferSend(ringbuf_hdl, data, data_len, pdMS_TO_TICKS(1))) == pdFALSE)
+    if (unlikely(xRingbufferSend(ringbuf_hdl, data, data_len, 0)) == pdFALSE)
     {
         abort();
     }
@@ -142,7 +142,7 @@ static bool on_data_received_from_usb(const uint8_t *data, size_t data_len, void
     return true;
 }
 
-static void usb_to_network(void *ringbuf_hdl_ptr)
+static void IRAM_ATTR usb_to_network(void *ringbuf_hdl_ptr)
 {
     RingbufHandle_t ringbuf_hdl = ringbuf_hdl_ptr;
     uint32_t length_max = 1024;
@@ -156,8 +156,8 @@ static void usb_to_network(void *ringbuf_hdl_ptr)
         }
 
         rfc2217_server_send_data(s_server, data, size);
-        ESP_LOGI(TAG, "%d bytes received from device -- forwarded to TCP", size);
-        ESP_LOG_BUFFER_HEXDUMP(TAG, data, size, ESP_LOG_INFO);
+        // ESP_LOGI(TAG, "%d bytes received from device -- forwarded to TCP", size);
+        // ESP_LOG_BUFFER_HEXDUMP(TAG, data, size, ESP_LOG_INFO);
     
         vRingbufferReturnItem(ringbuf_hdl, data);
     }
@@ -211,7 +211,6 @@ void serial_port_relay(void)
 
     while (true)
     {
-
         // Open USB device from tusb_serial_device example example. Either single or dual port configuration.
         ESP_LOGI(TAG, "Opening CDC ACM device 0x%04X:0x%04X...", CDC_HOST_ANY_VID, CDC_HOST_ANY_PID);
         esp_err_t err = cdc_acm_host_open(CDC_HOST_ANY_VID, CDC_HOST_ANY_PID, 0, &dev_config, &cdc_dev);
@@ -224,6 +223,9 @@ void serial_port_relay(void)
         s_baudrate = 115200;
 
         ESP_ERROR_CHECK(cdc_acm_host_set_control_line_state(cdc_dev, true, false));
+
+        // Wait for the device to disconnect
+        ESP_LOGI(TAG, "Waiting for USB device to disconnect...");
         xSemaphoreTake(s_device_disconnected_sem, portMAX_DELAY);
     }
 

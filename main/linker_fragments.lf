@@ -1,0 +1,34 @@
+[mapping:rocom]
+archive: libmain.a
+entries:
+    * (noflash)
+
+[mapping:usb]
+archive: libusb.a
+entries:
+    * (noflash)
+
+[mapping:freertos]
+archive: libfreertos.a
+entries:
+    * (noflash)
+
+[mapping:cdc_acm]
+archive: libespressif__usb_host_cdc_acm.a
+entries:
+    * (noflash)
+
+[mapping:pthread]
+archive: libpthread.a
+entries:
+    * (noflash)
+
+[mapping:netif]
+archive: libnetif.a
+entries:
+    * (noflash)
+
+[mapping:hardware]
+archive: libhardware.a
+entries:
+    * (noflash)

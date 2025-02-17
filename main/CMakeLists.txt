@@ -5,4 +5,5 @@ idf_component_register(
                   esp_wifi nvs_flash soc usb wilma wpa_supplicant
     EMBED_TXTFILES "../html/status.html"
                    "../html/wifi.html"
+    LDFRAGMENTS "linker_fragments.lf"
 )
