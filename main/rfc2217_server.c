@@ -470,7 +470,27 @@ int rfc2217_server_send_data(rfc2217_server_t server, const uint8_t *data, size_
         ESP_LOGE(TAG, "TCP receive thread is not running");
         return -1;
     }
-    tcp_send(server, data, len);
+
+
+    // The data is likely <= 64 bytes because of USB FS limitations. If the data
+    // is entirely 0xff, then we would have to pad it up to 128 bytes.
+    static uint8_t send_data[2048];
+    if (len >= sizeof(send_data)/2) {
+        ESP_LOGE(TAG, "data is %d bytes which exceeds size of %d", len, sizeof(send_data)/2);
+        assert(len <= sizeof(send_data)/2);
+    }
+
+    // Copy the bytes into `send_data` from `cbuf`, escaping any `0xff` bytes
+    // encountered.
+    size_t copied_size = 0;
+    for (size_t i = 0; i < len; i += 1) {
+        send_data[copied_size++] = data[i];
+        if (data[i] == 0xff) {
+            send_data[copied_size++] = 0xff;
+        }
+    }
+
+    tcp_send(server, send_data, copied_size);
     return 0;
 }
 
