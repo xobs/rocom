@@ -395,6 +395,7 @@ static void process_received_over_tcp(rfc2217_server_t server, const uint8_t *bu
 
     // otherwise, process the data byte by byte
     const uint8_t *end = buf + size;
+    size_t buffer_contents = 0;
     for (; buf < end; ++buf) {
         uint8_t c = *buf;
         switch (server->telnet_mode) {
@@ -410,8 +411,14 @@ static void process_received_over_tcp(rfc2217_server_t server, const uint8_t *bu
                     server->suboption_size = 0;
                 }
             } else {
-                if (server->config.on_data_received) {
-                    server->config.on_data_received(server->config.ctx, &c, 1);
+                server->config.data_buffer[buffer_contents++] = c;
+                if (buffer_contents >= server->config.data_buffer_size) {
+                    if (server->config.on_data_received) {
+                        server->config.on_data_received(server->config.ctx,
+                                                        server->config.data_buffer,
+                                                        buffer_contents);
+                    }
+                    buffer_contents = 0;
                 }
             }
             break;
@@ -427,8 +434,14 @@ static void process_received_over_tcp(rfc2217_server_t server, const uint8_t *bu
                         server->suboption_size = 0;
                     }
                 } else {
-                    if (server->config.on_data_received) {
-                        server->config.on_data_received(server->config.ctx, &c, 1);
+                    server->config.data_buffer[buffer_contents++] = c;
+                    if (buffer_contents >= server->config.data_buffer_size) {
+                        if (server->config.on_data_received) {
+                            server->config.on_data_received(server->config.ctx,
+                                                            server->config.data_buffer,
+                                                            buffer_contents);
+                        }
+                        buffer_contents = 0;
                     }
                 }
                 server->telnet_mode = T_NORMAL;
@@ -455,6 +468,14 @@ static void process_received_over_tcp(rfc2217_server_t server, const uint8_t *bu
             server->telnet_mode = T_NORMAL;
             break;
         }
+        }
+    }
+
+    if (buffer_contents > 0) {
+        if (server->config.on_data_received) {
+            server->config.on_data_received(server->config.ctx,
+                                            server->config.data_buffer,
+                                            buffer_contents);
         }
     }
 }

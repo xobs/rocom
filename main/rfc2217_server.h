@@ -95,6 +95,8 @@ typedef struct {
     rfc2217_on_control_t on_control;    //!< callback called when client requests control signal change
     rfc2217_on_purge_t on_purge;    //!< callback called when client requests buffer purge
     rfc2217_on_data_received_t on_data_received;    //!< callback called when data is received from client
+    uint8_t *data_buffer;       //!< Received data is temporarily buffered here
+    size_t data_buffer_size;    //!< The length of t he data buffer
     unsigned port;              //!< TCP port to listen on
     unsigned task_stack_size;   //!< server task stack size
     unsigned task_priority;     //!< server task priority

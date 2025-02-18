@@ -7,7 +7,7 @@
 
 #include "rfc2217_server.h"
 
-#define USB_TO_NETWORK_TASK_PRIORITY 14
+#define USB_TO_NETWORK_TASK_PRIORITY 10
 
 static const char *TAG = "USB-CDC";
 
@@ -169,7 +169,7 @@ void serial_port_relay(void)
 
     const cdc_acm_host_driver_config_t cdc_acm_driver_config = {
         .driver_task_stack_size = 4096,
-        .driver_task_priority = 15,
+        .driver_task_priority = 11,
         .xCoreID = 1,
         .new_dev_cb = NULL,
     };
@@ -188,6 +188,7 @@ void serial_port_relay(void)
         .data_cb = on_data_received_from_usb,
     };
 
+    static uint8_t rfc2217_buffer[2048];
     rfc2217_server_config_t rfc2217_config = {
         .ctx = NULL,
         .on_client_connected = on_connected,
@@ -198,6 +199,8 @@ void serial_port_relay(void)
         .on_data_received = on_data_received_from_rfc2217,
         .port = CONFIG_UART_TCP_PORT,
         .task_stack_size = 4096,
+        .data_buffer = rfc2217_buffer,
+        .data_buffer_size = sizeof(rfc2217_buffer),
         .task_priority = 5,
         .task_core_id = 0,
     };

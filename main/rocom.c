@@ -33,7 +33,7 @@
 
 static const char *TAG = "rocom";
 
-#define HOST_LIB_TASK_PRIORITY 11
+#define HOST_LIB_TASK_PRIORITY 15
 
 extern void serial_port_relay(void);
 
@@ -70,7 +70,6 @@ static void usb_host_lib_task(void *arg)
         uint32_t event_flags;
         // ESP_ERROR_CHECK(usb_host_client_handle_events(handle, portMAX_DELAY));
         ESP_ERROR_CHECK(usb_host_lib_handle_events(portMAX_DELAY, &event_flags));
-        // ESP_LOGI(TAG, "USB event flags: 0x%08" PRIx32, event_flags);
         if (event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS)
         {
             ESP_LOGI(TAG, "Get FLAGS_NO_CLIENTS");
