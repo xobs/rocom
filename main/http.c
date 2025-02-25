@@ -11,7 +11,7 @@
 #include "hashmap.h"
 #include <string.h>
 #include <stdio.h>
-// #include "ota-http.h"
+#include "ota-http.h"
 // #include "websocket.h"
 #include "wilma_cgi.h"
 // #include "driver/uart.h"
@@ -228,26 +228,36 @@ static esp_err_t cgi_system_status(httpd_req_t *req)
 	return ESP_OK;
 }
 
-// // Use this as a cgi function to redirect one url to another.
-// static esp_err_t cgi_redirect(httpd_req_t *req)
-// {
-// 	httpd_resp_set_type(req, "text/html");
-// 	httpd_resp_set_status(req, "302 Moved");
-// 	httpd_resp_set_hdr(req, "Location", (const char *)req->user_ctx);
-// 	httpd_resp_send(req, NULL, 0);
-// 	return ESP_OK;
-// }
+// Use this as a cgi function to redirect one url to another.
+static esp_err_t cgi_redirect(httpd_req_t *req)
+{
+	httpd_resp_set_type(req, "text/html");
+	httpd_resp_set_status(req, "302 Moved");
+	httpd_resp_set_hdr(req, "Location", (const char *)req->user_ctx);
+	httpd_resp_send(req, NULL, 0);
+	return ESP_OK;
+}
 
-static esp_err_t send_status(httpd_req_t *req) {
-    extern const char status_html_start[] asm("_binary_status_html_start");
-    extern const char status_html_end[]   asm("_binary_status_html_end");
+static esp_err_t send_status(httpd_req_t *req)
+{
+	extern const char status_html_start[] asm("_binary_status_html_start");
+	extern const char status_html_end[] asm("_binary_status_html_end");
 
 	return httpd_resp_send(req, status_html_start, status_html_end - status_html_start);
 }
 
-static esp_err_t send_wifi(httpd_req_t *req) {
-    extern const char wifi_html_start[] asm("_binary_wifi_html_start");
-    extern const char wifi_html_end[]   asm("_binary_wifi_html_end");
+static esp_err_t send_update(httpd_req_t *req)
+{
+	extern const char update_html_start[] asm("_binary_update_html_start");
+	extern const char update_html_end[] asm("_binary_update_html_end");
+
+	return httpd_resp_send(req, update_html_start, update_html_end - update_html_start);
+}
+
+static esp_err_t send_wifi(httpd_req_t *req)
+{
+	extern const char wifi_html_start[] asm("_binary_wifi_html_start");
+	extern const char wifi_html_end[] asm("_binary_wifi_html_end");
 
 	return httpd_resp_send(req, wifi_html_start, wifi_html_end - wifi_html_start);
 }
@@ -261,37 +271,37 @@ static const httpd_uri_t basic_handlers[] = {
 	},
 
 	// OTA updates
-	// {
-	// 	.uri = "/api/flash",
-	// 	.method = HTTP_GET,
-	// 	.handler = cgi_redirect,
-	// 	.user_ctx = (void *)"/flash/",
-	// },
-	// {
-	// 	.uri = "/api/flash/init",
-	// 	.method = HTTP_GET,
-	// 	.handler = cgi_flash_init,
-	// },
-	// {
-	// 	.uri = "/api/flash/upload",
-	// 	.method = HTTP_POST,
-	// 	.handler = cgi_flash_upload,
-	// },
-	// {
-	// 	.uri = "/api/flash/reboot",
-	// 	.method = HTTP_GET,
-	// 	.handler = cgi_flash_reboot,
-	// },
-	// {
-	// 	.uri = "/api/flash/progress",
-	// 	.method = HTTP_GET,
-	// 	.handler = cgi_flash_progress,
-	// },
-	// {
-	// 	.uri = "/api/flash/status",
-	// 	.method = HTTP_GET,
-	// 	.handler = cgi_flash_status,
-	// },
+	{
+		.uri = "/api/flash",
+		.method = HTTP_GET,
+		.handler = cgi_redirect,
+		.user_ctx = (void *)"/flash/",
+	},
+	{
+		.uri = "/api/flash/init",
+		.method = HTTP_GET,
+		.handler = cgi_flash_init,
+	},
+	{
+		.uri = "/api/flash/upload",
+		.method = HTTP_POST,
+		.handler = cgi_flash_upload,
+	},
+	{
+		.uri = "/api/flash/reboot",
+		.method = HTTP_GET,
+		.handler = cgi_flash_reboot,
+	},
+	{
+		.uri = "/api/flash/progress",
+		.method = HTTP_GET,
+		.handler = cgi_flash_progress,
+	},
+	{
+		.uri = "/api/flash/status",
+		.method = HTTP_GET,
+		.handler = cgi_flash_status,
+	},
 	// {
 	// 	.uri = "/api/storage",
 	// 	.method = HTTP_DELETE,
@@ -346,6 +356,11 @@ static const httpd_uri_t basic_handlers[] = {
 		.uri = "/status.html",
 		.method = HTTP_GET,
 		.handler = send_status,
+	},
+	{
+		.uri = "/update.html",
+		.method = HTTP_GET,
+		.handler = send_update,
 	},
 	{
 		.uri = "/wifi.html",

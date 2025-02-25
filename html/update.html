@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<title>Update firmware</title>
+	<style type="text/css">
+		body {
+			background-color: #404040;
+			font-family: sans-serif;
+		}
+
+		#main {
+			background-color: #d0d0FF;
+			-moz-border-radius: 5px;
+			-webkit-border-radius: 5px;
+			border-radius: 5px;
+			border: 2px solid #000000;
+			width: 800px;
+			margin: 0 auto;
+			padding: 20px
+		}
+
+		#progressbar {
+			margin: 10px;
+			padding: 0;
+			border: 1px solid #000000;
+			height: 20px;
+			width: 200px;
+			background-color: #808080;
+		}
+
+		#progressbarinner {
+			width: 10px;
+			height: 20px;
+			border: none;
+			background-color: #00ff00;
+		}
+	</style>
+	<script type="text/javascript">
+		var xhr = new XMLHttpRequest();
+
+		function doReboot() {
+			xhr.open("GET", "/api/flash/reboot");
+			xhr.onreadystatechange = function () {
+				if (xhr.readyState === 4 && xhr.status >= 200 && xhr.status < 300) {
+					setTimeout(function () {
+						location.reload(true);
+					}, 3000);
+				}
+			};
+			xhr.send();
+		}
+
+		function setProgress(amt) {
+			document.getElementById("progressbarinner").style.width = (amt * 200) + "px";
+		}
+
+		function doUpgrade() {
+			var fileInput = document.getElementById("file");
+			var file = fileInput.files[0];
+			var remark = document.getElementById("remark");
+
+			if (!file) {
+				remark.innerHTML = "Can't read file!";
+				return;
+			}
+
+			xhr.onreadystatechange = function () {
+				console.log("Ready state changed: " + xhr.readyState);
+				if (xhr.readyState === 4 && xhr.status >= 200 && xhr.status < 300) {
+					setProgress(1);
+					let response = JSON.parse(xhr.responseText);
+					if (!response.success) {
+						remark.innerHTML = "Error: " + xhr.responseText;
+					} else {
+						remark.innerHTML = "Uploading done. Rebooting.";
+						doReboot();
+					}
+				}
+			};
+
+			if (xhr.upload && xhr.upload.onprogress !== undefined) {
+				xhr.upload.onprogress = function (e) {
+					console.log("Upload progress: " + e.loaded + " / " + e.total);
+					setProgress(e.loaded / e.total);
+				};
+			}
+
+			xhr.open("POST", "/api/flash/upload");
+			xhr.send(file);
+			return false;
+		}
+
+		window.onload = function () {
+			xhr.open("GET", "/api/flash/init");
+			xhr.onreadystatechange = function () {
+				if (xhr.readyState === 4 && xhr.status >= 200 && xhr.status < 300) {
+					var remark = document.getElementById("remark");
+					remark.innerHTML = "Please upload " + xhr.responseText + " or ota file.";
+					setProgress(0);
+				}
+			};
+			xhr.send();
+		};
+
+	</script>
+</head>
+
+<body>
+	<div id="main">
+		<h1>Update firmware</h1>
+		<div id="remark">Loading...</div>
+		<input type="file" id="file" />
+		<input type="submit" value="Update!" onclick="doUpgrade()" />
+		<div id="progressbar">
+			<div id="progressbarinner"></div>
+		</div>
+	</div>
+</body>

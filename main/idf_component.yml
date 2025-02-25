@@ -1,4 +1,5 @@
 ## IDF Component Manager Manifest File
 dependencies:
-  usb_host_cdc_acm: "2.*"
+  espressif/mdns: "*"
   idf: ">=5.4.0"
+  usb_host_cdc_acm: "2.*"

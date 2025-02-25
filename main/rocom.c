@@ -10,9 +10,10 @@
 
 #include <driver/gpio.h>
 
-#include <esp_system.h>
-#include <esp_log.h>
 #include <esp_err.h>
+#include <esp_log.h>
+#include <esp_ota_ops.h>
+#include <esp_system.h>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -29,13 +30,15 @@
 
 #include "http.h"
 #include "kacha.h"
+#include "ota-tftp.h"
 #include "wilma.h"
 
 static const char *TAG = "rocom";
 
 #define HOST_LIB_TASK_PRIORITY 15
 
-extern void serial_port_relay(void);
+void serial_port_relay(void);
+void initialise_mdns(const char *hostname);
 
 /**
  * @brief Start USB Host install and handle common USB host library events while app pin not low
@@ -117,41 +120,53 @@ void simple_wifi(void);
  */
 void app_main(void)
 {
-#ifdef USB_SERIAL_BRIDGE
     esp_err_t ret;
-    TaskHandle_t host_lib_task_hdl;
 
     // [Re]initialize NonVolatile Storage
     ret = nvs_flash_init();
-	if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-		ESP_ERROR_CHECK(nvs_flash_erase());
-		ret = nvs_flash_init();
-	}
-	ESP_ERROR_CHECK(ret);
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
 
     wilma_start();
-    // simple_wifi();
     configure_reset_boot();
     reset_target_bootloader();
 
+    initialise_mdns(NULL);
     webserver_start();
+    ota_tftp_init_server(69, 5);
 
-    // Create usb host lib task
-    BaseType_t task_created;
-    task_created = xTaskCreatePinnedToCore(usb_host_lib_task,
-                                           "usb_host",
-                                           4096,
-                                           xTaskGetCurrentTaskHandle(),
-                                           HOST_LIB_TASK_PRIORITY,
-                                           &host_lib_task_hdl,
-                                           0);
-    assert(task_created == pdTRUE);
+    if (0)
+    {
+        // Create usb host lib task
+        BaseType_t task_created;
+        TaskHandle_t host_lib_task_hdl;
+        task_created = xTaskCreatePinnedToCore(usb_host_lib_task,
+                                               "usb_host",
+                                               4096,
+                                               xTaskGetCurrentTaskHandle(),
+                                               HOST_LIB_TASK_PRIORITY,
+                                               &host_lib_task_hdl,
+                                               0);
+        assert(task_created == pdTRUE);
 
-    // Wait unit the USB host library is installed
-    ulTaskNotifyTake(false, 1000);
+        // Wait unit the USB host library is installed
+        ulTaskNotifyTake(false, 1000);
 
-    serial_port_relay();
-#else
-    tristate_usb();
-#endif
+        serial_port_relay();
+    }
+    else
+    {
+        tristate_usb();
+    }
+
+    // Wait a few seconds for the system to stabilize before confirming the
+    // new firmware image works. This gives us time to ensure the new
+    // environment works well.
+    vTaskDelay(pdMS_TO_TICKS(5000));
+    ESP_LOGI(TAG, "marking upate as successful");
+    esp_ota_mark_app_valid_cancel_rollback();
 }

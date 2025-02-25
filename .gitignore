@@ -1,3 +1,5 @@
 sdkconfig.old
 build/
 managed_components/
+.DS_Store
+sdkconfig
